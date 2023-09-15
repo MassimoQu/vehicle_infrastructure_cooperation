@@ -1,0 +1,3 @@
+/home/massimo/vehicle_infrastructure_cooperation/opencv_test/build/CMakeFiles/rebuild_cache.dir
+/home/massimo/vehicle_infrastructure_cooperation/opencv_test/build/CMakeFiles/edit_cache.dir
+/home/massimo/vehicle_infrastructure_cooperation/opencv_test/build/CMakeFiles/TEST_OPENCV.dir

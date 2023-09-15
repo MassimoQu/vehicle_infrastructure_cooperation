@@ -1,0 +1,1 @@
+/usr/bin/c++    -rdynamic CMakeFiles/TEST_OPENCV.dir/test_opencv.cpp.o  -o TEST_OPENCV 
