@@ -1,3 +1,0 @@
-/home/massimo/vehicle_infrastructure_cooperation/build/CMakeFiles/rebuild_cache.dir
-/home/massimo/vehicle_infrastructure_cooperation/build/CMakeFiles/edit_cache.dir
-/home/massimo/vehicle_infrastructure_cooperation/build/CMakeFiles/TEST.dir

@@ -38,13 +38,13 @@ struct BOX2D{
 struct BOX3D{
     double yaw;
     struct {
-        float h, w, l;
+        double h, w, l;
     } dimensions;
     struct {
-        float x, y, z;
+        double x, y, z;
     } location;
 
-    BOX3D(double yaw, float h, float w, float l, float x, float y, float z) : yaw(yaw), dimensions{h, w, l}, location{x, y, z} {}
+    BOX3D(double yaw, double h, double w, double l, double x, double y, double z) : yaw(yaw), dimensions{h, w, l}, location{x, y, z} {}
     BOX3D() : yaw(0), dimensions{0, 0, 0}, location{0, 0, 0} {}
 };
 std::istream& operator>>(std::istream& is, BOX2D& b) {
@@ -90,8 +90,11 @@ bool read_data(pcl::PointCloud<pcl::PointXYZ>::Ptr result_point_cloud, std::stri
         cerr << "parse 2dboxing failed \n";
         return false;
     }
+    
     for (unsigned int i = 0; i < json_tree_2d.size(); i++) {
-        box2d_scene.push_back(BOX2D(json_tree_2d[i]["xmin"].asDouble(), json_tree_2d[i]["ymin"].asDouble(), json_tree_2d[i]["xmax"].asDouble(), json_tree_2d[i]["ymax"].asDouble()));
+        box2d_scene.push_back(BOX2D(json_tree_2d[i]["2d_box"]["xmin"].asDouble(), json_tree_2d[i]["2d_box"]["ymin"].asDouble(), 
+                                    json_tree_2d[i]["2d_box"]["xmax"].asDouble(), json_tree_2d[i]["2d_box"]["ymax"].asDouble()));
+       
     }
     ifs_2d.close();
 
@@ -105,57 +108,15 @@ bool read_data(pcl::PointCloud<pcl::PointXYZ>::Ptr result_point_cloud, std::stri
         return false;
     }
     for (unsigned int i = 0; i < json_tree_3d.size(); i++) {
-        box3d_scene.push_back(BOX3D(json_tree_2d[i]["yaw"].asDouble(), 
-                json_tree_2d[i]["dimensions"]["h"].asFloat(), json_tree_2d[i]["dimensions"]["w"].asFloat(), json_tree_2d[i]["dimensions"]["l"].asFloat(), 
-                json_tree_2d[i]["location"]["x"].asFloat(), json_tree_2d[i]["location"]["y"].asFloat(), json_tree_2d[i]["location"]["z"].asFloat()));
+        box3d_scene.push_back(BOX3D(json_tree_3d[i]["yaw"].asDouble(), json_tree_3d[i]["3d_dimensions"]["h"].asDouble(), json_tree_3d[i]["3d_dimensions"]["w"].asDouble(), json_tree_3d[i]["3d_dimensions"]["l"].asDouble(), 
+                                    json_tree_3d[i]["3d_location"]["x"].asDouble(), json_tree_3d[i]["3d_location"]["y"].asDouble(), json_tree_3d[i]["3d_location"]["z"].asDouble()));
+
     }
     ifs_3d.close();
 
     return true;
 }
 
-// void process(pcl::PointCloud<pcl::PointXYZI>::Ptr object_point_cloud, Eigen::Matrix4f RT, Eigen::Matrix3f camera_param)
-// {
-
-//     Eigen::Matrix<float, 3, 4> T_lidar2cam_top3_local, T_lidar2image_local; //lida2image=T_lidar2cam*(T_cam02cam2)*T_cam2image
-//     T_lidar2cam_top3_local = RT.topRows(3);                                 
-//     T_lidar2image_local = camera_param * T_lidar2cam_top3_local;
-//     Eigen::Vector4f raw_point;
-//     Eigen::Vector3f trans_point;
-//     int point_r = 2;
-//     for (int i = 0; i < object_point_cloud->size(); i++)
-//     {
-//         raw_point(0, 0) = object_point_cloud->points[i].x; 
-//         raw_point(1, 0) = object_point_cloud->points[i].y;
-//         raw_point(2, 0) = object_point_cloud->points[i].z;
-//         raw_point(3, 0) = 1;
-//         trans_point = T_lidar2image_local * raw_point;
-//         int x = (int)(trans_point(0, 0) / trans_point(2, 0));
-//         int y = (int)(trans_point(1, 0) / trans_point(2, 0));
-//         // 2d boxing filtration
-//     }
-// }
-
-
-
-// int main(int argc, char **argv) {
-    
-//     read();
-
-//     double mean_remained_ratio = 0;
-
-//     for(){
-//         component_point_cloud = get_component_point_cloud(scene_point_cloud, boxing_3d);
-//         double component_remained_ratio = calculate_3d_throught_2d_remaining(component_point_cloud, boxing_2d);
-        
-//         // metrics of integration
-//         mean_remained_ratio += component_remained_ratio;
-
-//     }
-
-
-//     return 0;
-// }
 
 int main(){
     pcl::PointCloud<pcl::PointXYZ>::Ptr scene_point_cloud(new pcl::PointCloud<pcl::PointXYZ>);
@@ -179,44 +140,41 @@ int main(){
     // show all the box2d and box3d
     pcl::visualization::PCLVisualizer viewer("scene_point_cloud");
     viewer.setBackgroundColor(0.0, 0.0, 0.0);
-    
-
-    // viewer.addCoordinateSystem(1.0);
+    viewer.addCoordinateSystem(1.0);
 
     viewer.addPointCloud<pcl::PointXYZ> (scene_point_cloud, "scene_point_cloud");
-    viewer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 10, "scene_point_cloud");
+    viewer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "scene_point_cloud");
     
     viewer.addCoordinateSystem (1.0);
     viewer.initCameraParameters(); // 啥作用？
+
+    
 
     // for (int i = 0; i < box2d_scene.size(); i++) {
     //     std::string name_2d = "box2d_" + std::to_string(i);
     //     viewer.addCube(box2d_scene[i].xmin, box2d_scene[i].xmax, box2d_scene[i].ymin, box2d_scene[i].ymax, 0, 0, 1, 0, 0, name_2d);
     // }
-    // for (int i = 0; i < box3d_scene.size(); i++) {
-    //     std::string name_3d = "box3d_" + std::to_string(i);
-    //     viewer.addCube(box3d_scene[i].location.x - box3d_scene[i].dimensions.l / 2, box3d_scene[i].location.x + box3d_scene[i].dimensions.l / 2, 
-    //         box3d_scene[i].location.y - box3d_scene[i].dimensions.w / 2, box3d_scene[i].location.y + box3d_scene[i].dimensions.w / 2, 
-    //         box3d_scene[i].location.z - box3d_scene[i].dimensions.h / 2, box3d_scene[i].location.z + box3d_scene[i].dimensions.h / 2, 1, 0, 0, name_3d);
-    // }
 
-    // example1:
-    // pcl::visualization::CloudViewer viewer("cloudviewer test");
-    // viewer.showCloud(scene_point_cloud);
+    cout << "xmin, xmax, ymin, ymax, zmin, zmax" << endl;
+    cout << "x, y, z, l, w, h, yaw" << endl;
 
-    // example2:
-    // pcl::visualization::PCLVisualizer viewer("PCL Viewer");
-    // viewer.setBackgroundColor(0.0, 0.0, 0.0);
-    // pcl::PointXYZ o;
-    // o.x = 1.0;
-    // o.y = 0;
-    // o.z = 0;
-    // viewer.addSphere(o, 0.25, "sphere", 0);
+    for (int i = 0; i < box3d_scene.size(); i++) {
+        std::string name_3d = "box3d_" + std::to_string(i);
+        viewer.addCube(box3d_scene[i].location.x - box3d_scene[i].dimensions.l / 2, box3d_scene[i].location.x + box3d_scene[i].dimensions.l / 2, 
+            box3d_scene[i].location.y - box3d_scene[i].dimensions.w / 2, box3d_scene[i].location.y + box3d_scene[i].dimensions.w / 2, 
+            box3d_scene[i].location.z - box3d_scene[i].dimensions.h / 2, box3d_scene[i].location.z + box3d_scene[i].dimensions.h / 2, 1, 0, 0, name_3d);
+            // cout the parameters above
+            std::cout << "box3d_" << i << ": " << box3d_scene[i].location.x - box3d_scene[i].dimensions.l / 2 << " " << box3d_scene[i].location.x + box3d_scene[i].dimensions.l / 2 << " " << 
+                box3d_scene[i].location.y - box3d_scene[i].dimensions.w / 2 << " " << box3d_scene[i].location.y + box3d_scene[i].dimensions.w / 2 << " " << 
+                box3d_scene[i].location.z - box3d_scene[i].dimensions.h / 2 << " " << box3d_scene[i].location.z + box3d_scene[i].dimensions.h / 2 << endl;
 
-    // example3:
-    // pcl::visualization::PCLVisualizer viewer("PCL Viewer");
-    // viewer.setBackgroundColor(1, 1, 1);
+            // // cout the box3d
+            // std::cout << "box3d_" << i << ": " << box3d_scene[i].location.x << " " << box3d_scene[i].location.y << " " << box3d_scene[i].location.z << " " <<
+            //     box3d_scene[i].dimensions.l << " " << box3d_scene[i].dimensions.w << " " << box3d_scene[i].dimensions.h << " " << box3d_scene[i].yaw << endl;
 
+    }
+
+    
 
     while (!viewer.wasStopped())
     {
