@@ -4,6 +4,7 @@
 #include <pcl/common/common.h>
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/visualization/cloud_viewer.h>
+#include <pcl/filters/crop_box.h>
 
 // #include <opencv2/opencv.hpp>
 
@@ -15,19 +16,11 @@
 #include <iostream>
 
 
-// boxing 用什么数据结构
-
-// 从json文件中读取boxing数据
-
-// 点云展示方法
-
-// 读取点云
-
 // pcl中筛选离群点的内嵌算法
 
 // 通过 个体点云点留存率 统计 整体点云留存率 的指标
 
-
+// 根据不同的类别给框上不同的颜色，观察真值的每一类对象本身的提取效果（后期效果不好的一个调整思路
 
 
 struct BOX2D{
@@ -77,7 +70,7 @@ bool read_data(pcl::PointCloud<pcl::PointXYZ>::Ptr result_point_cloud, std::stri
 
     result = result && read_point_cloud(result_point_cloud, point_cloud_file_name);
 
-    // 优雅的读取json数据并赋值给box2d和box3d 要重载from_json 并引入 nlohmann json 解析库 #todo
+    // 优雅的读取json数据并赋值给box2d和box3d 要重载from_json 并引入 nlohmann json 解析库 #unnecessary
 
     Json::Reader reader;
 
@@ -117,6 +110,89 @@ bool read_data(pcl::PointCloud<pcl::PointXYZ>::Ptr result_point_cloud, std::stri
     return true;
 }
 
+void show_boxed_target_with_color(pcl::PointCloud<pcl::PointXYZ>::Ptr scene_point_cloud, std::vector<BOX3D> box3d_scene){
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr scene_point_cloud_rgb (new pcl::PointCloud<pcl::PointXYZRGB>());
+    pcl::copyPointCloud(*scene_point_cloud, *scene_point_cloud_rgb);
+     // set scene_point_cloud_rgb color
+    for (int i = 0; i < scene_point_cloud_rgb->size(); i++) {
+        scene_point_cloud_rgb->points[i].r = 0;
+        scene_point_cloud_rgb->points[i].g = 255;
+        scene_point_cloud_rgb->points[i].b = 0;
+    }
+
+    pcl::PointIndices::Ptr inliers(new pcl::PointIndices()), outliers(new pcl::PointIndices());
+
+    for (int i = 0; i < box3d_scene.size(); i++) { 
+
+        int xmin = box3d_scene[i].location.x - box3d_scene[i].dimensions.l / 2, ymin = box3d_scene[i].location.y - box3d_scene[i].dimensions.w / 2, zmin = box3d_scene[i].location.z - box3d_scene[i].dimensions.h / 2, 
+            xmax = box3d_scene[i].location.x + box3d_scene[i].dimensions.l / 2, ymax = box3d_scene[i].location.y + box3d_scene[i].dimensions.w / 2, zmax = box3d_scene[i].location.z + box3d_scene[i].dimensions.h / 2;
+
+        pcl::CropBox<pcl::PointXYZRGB> crop_box_filter;
+        crop_box_filter.setInputCloud(scene_point_cloud_rgb);
+        crop_box_filter.setMin(Eigen::Vector4f(xmin, ymin, zmin, 1.0));
+        crop_box_filter.setMax(Eigen::Vector4f(xmax, ymax, zmax, 1.0));
+        crop_box_filter.setNegative(false);//默认false，保留box内的点
+        // rotate crop_box using crop_box_filter.setRotation
+        // crop_box_filter.setRotation(Eigen::Vector3f(0, 0, -box3d_scene[i].yaw)); 
+        // verify the effectiveness of the rotation #todo
+        // above shows the idea of rotation of the box , another idea is to rotate the point cloud #todo
+        
+        crop_box_filter.filter(inliers->indices);
+        for(int i = 0; i < inliers->indices.size(); i++){
+            // scene_point_cloud_rgb->points[inliers->indices[i]].r = 255;
+            // scene_point_cloud_rgb->points[inliers->indices[i]].g = 0;
+            // scene_point_cloud_rgb->points[inliers->indices[i]].b = 0;
+
+            auto& point = scene_point_cloud_rgb->at(inliers->indices.at(i));
+            point.r = 255;
+            point.g = 0;
+            point.b = 0;
+        }
+
+        // boxed target
+        // viewer.addCube(xmin, xmax, ymin, ymax, zmin, zmax, 1, 0, 0, "box3d_" + std::to_string(i));
+
+        // cout indices.size
+        std::cout << "box3d_" << i << "(inner)_indices: " << inliers->indices.size() << endl;
+        std::cout << "box3d_" << i << "(outer): " << scene_point_cloud_rgb->size() - inliers->indices.size() << endl;
+
+        // delete boxed target as loop progresses (proven to be unnecessary)
+        // pcl::PointCloud<pcl::PointXYZRGB>::Ptr scene_point_cloud_without_boxx(new pcl::PointCloud<pcl::PointXYZRGB>);
+        // crop_box_filter.setNegative(true);//true过滤box内的点
+        // crop_box_filter.filter(*scene_point_cloud_without_boxx);
+        // crop_box_filter.filter(outliers->indices);
+        // for (int i = 0; i < outliers->indices.size(); i++) {
+        //     auto& point = scene_point_cloud_rgb->at(outliers->indices.at(i));
+        //     point.r = 0;
+        //     point.g = 0;
+        //     point.b = 255;
+        // }
+        // // 用pcl 的方法 使得 scene_point_cloud_without_boxx 代替 scene_point_cloud #done
+        // scene_point_cloud_without_boxx.swap(scene_point_cloud_rgb);
+
+
+    }
+
+    pcl::visualization::PCLVisualizer viewer("scene_point_cloud_rgb");
+    viewer.setBackgroundColor(0.0, 0.0, 0.0);
+    viewer.addCoordinateSystem(1.0);
+
+    viewer.addPointCloud<pcl::PointXYZRGB> (scene_point_cloud_rgb, "scene_point_cloud_rgb");
+    viewer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "scene_point_cloud_rgb");
+   
+    viewer.addCoordinateSystem (1.0);
+    viewer.initCameraParameters(); // 啥作用？
+
+    while (!viewer.wasStopped())
+    {
+        // viewer.spinOnce();
+        viewer.spinOnce(100);
+        // std::this_thread::sleep_for(100ms);
+    }
+
+    return;
+}
 
 int main(){
     pcl::PointCloud<pcl::PointXYZ>::Ptr scene_point_cloud(new pcl::PointCloud<pcl::PointXYZ>);
@@ -132,49 +208,26 @@ int main(){
     std::cout << "box2d_scene size: " << box2d_scene.size() << std::endl;
     std::cout << "box3d_scene size: " << box3d_scene.size() << std::endl;
 
-    // 点云展示方法
+    // for (int i = 0; i < box2d_scene.size(); i++) {
+    //     std::string name_2d = "box2d_" + std::to_string(i);
+    //     viewer.addCube(box2d_scene[i].xmin, box2d_scene[i].xmax, box2d_scene[i].ymin, box2d_scene[i].ymax, 0, 0, 1, 0, 0, name_2d);
+    // }
+
+    show_boxed_target_with_color(scene_point_cloud, box3d_scene);
+    // 框框和点云目标并不完全重合，看起来这个json的检测框不是针对这个点云的？#todo  
 
 
-
-
-    // show all the box2d and box3d
+    /** visualize 
+    
     pcl::visualization::PCLVisualizer viewer("scene_point_cloud");
     viewer.setBackgroundColor(0.0, 0.0, 0.0);
     viewer.addCoordinateSystem(1.0);
 
     viewer.addPointCloud<pcl::PointXYZ> (scene_point_cloud, "scene_point_cloud");
     viewer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "scene_point_cloud");
-    
+   
     viewer.addCoordinateSystem (1.0);
     viewer.initCameraParameters(); // 啥作用？
-
-    
-
-    // for (int i = 0; i < box2d_scene.size(); i++) {
-    //     std::string name_2d = "box2d_" + std::to_string(i);
-    //     viewer.addCube(box2d_scene[i].xmin, box2d_scene[i].xmax, box2d_scene[i].ymin, box2d_scene[i].ymax, 0, 0, 1, 0, 0, name_2d);
-    // }
-
-    cout << "xmin, xmax, ymin, ymax, zmin, zmax" << endl;
-    cout << "x, y, z, l, w, h, yaw" << endl;
-
-    for (int i = 0; i < box3d_scene.size(); i++) {
-        std::string name_3d = "box3d_" + std::to_string(i);
-        viewer.addCube(box3d_scene[i].location.x - box3d_scene[i].dimensions.l / 2, box3d_scene[i].location.x + box3d_scene[i].dimensions.l / 2, 
-            box3d_scene[i].location.y - box3d_scene[i].dimensions.w / 2, box3d_scene[i].location.y + box3d_scene[i].dimensions.w / 2, 
-            box3d_scene[i].location.z - box3d_scene[i].dimensions.h / 2, box3d_scene[i].location.z + box3d_scene[i].dimensions.h / 2, 1, 0, 0, name_3d);
-            // cout the parameters above
-            std::cout << "box3d_" << i << ": " << box3d_scene[i].location.x - box3d_scene[i].dimensions.l / 2 << " " << box3d_scene[i].location.x + box3d_scene[i].dimensions.l / 2 << " " << 
-                box3d_scene[i].location.y - box3d_scene[i].dimensions.w / 2 << " " << box3d_scene[i].location.y + box3d_scene[i].dimensions.w / 2 << " " << 
-                box3d_scene[i].location.z - box3d_scene[i].dimensions.h / 2 << " " << box3d_scene[i].location.z + box3d_scene[i].dimensions.h / 2 << endl;
-
-            // // cout the box3d
-            // std::cout << "box3d_" << i << ": " << box3d_scene[i].location.x << " " << box3d_scene[i].location.y << " " << box3d_scene[i].location.z << " " <<
-            //     box3d_scene[i].dimensions.l << " " << box3d_scene[i].dimensions.w << " " << box3d_scene[i].dimensions.h << " " << box3d_scene[i].yaw << endl;
-
-    }
-
-    
 
     while (!viewer.wasStopped())
     {
@@ -183,7 +236,9 @@ int main(){
         // std::this_thread::sleep_for(100ms);
     }
 
-    cout<<"new one"<<endl;
+    **/
+    
+
 
     return  0;
 }
