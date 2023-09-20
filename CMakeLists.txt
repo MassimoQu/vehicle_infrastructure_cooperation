@@ -28,3 +28,4 @@ target_link_libraries (TEST ${PCL_LIBRARIES})
 target_link_libraries( TEST  ${OpenCV_LIBS})
 target_link_libraries(TEST ${JSONCPP_LIBRARIES})
 message(STATUS "jsoncpp_LIBRARIES: ${JSONCPP_LIBRARIES}")
+ 
