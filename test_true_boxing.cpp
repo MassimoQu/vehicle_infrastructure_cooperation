@@ -14,7 +14,8 @@
 #include <jsoncpp/json/json.h>
 
 #include <iostream>
-
+#include <map>
+#include <algorithm>
 
 // pcl中筛选离群点的内嵌算法
 
@@ -29,6 +30,7 @@ struct BOX2D{
     BOX2D() : xmin(0), ymin(0), xmax(0), ymax(0) {}
 };
 struct BOX3D{
+    std::string type;
     double yaw;
     struct {
         double h, w, l;
@@ -37,8 +39,8 @@ struct BOX3D{
         double x, y, z;
     } location;
 
-    BOX3D(double yaw, double h, double w, double l, double x, double y, double z) : yaw(yaw), dimensions{h, w, l}, location{x, y, z} {}
-    BOX3D() : yaw(0), dimensions{0, 0, 0}, location{0, 0, 0} {}
+    BOX3D(std::string type, double yaw, double h, double w, double l, double x, double y, double z) : type(type), yaw(yaw), dimensions{h, w, l}, location{x, y, z} {}
+    BOX3D() : type(""), yaw(0), dimensions{0, 0, 0}, location{0, 0, 0} {}
 };
 std::istream& operator>>(std::istream& is, BOX2D& b) {
     is >> b.xmin >> b.ymin >> b.xmax >> b.ymax;
@@ -49,6 +51,15 @@ std::istream& operator>>(std::istream& is, BOX3D& b) {
        >> b.location.x >> b.location.y >> b.location.z;
     return is;
 }
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr infra_point_cloud(new pcl::PointCloud<pcl::PointXYZ>), vehicle_point_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+std::vector<BOX2D> box2d_scene;
+std::vector<BOX3D> cooperative_3dbox_scene, infra_3dbox_scene, vehicle_3dbox_scene;
+
+Eigen::Matrix4f T_vehicle_lidar2novatel = Eigen::Matrix4f::Zero();
+Eigen::Matrix4f T_vehicle_novatel2world = Eigen::Matrix4f::Zero();
+Eigen::Matrix4f T_infra_lidar2world = Eigen::Matrix4f::Zero();
+Eigen::Matrix3f internal_para = Eigen::Matrix3f::Zero();
 
 
 bool read_point_cloud(pcl::PointCloud<pcl::PointXYZ>::Ptr result_point_cloud, std::string file_name){
@@ -63,91 +74,39 @@ bool read_point_cloud(pcl::PointCloud<pcl::PointXYZ>::Ptr result_point_cloud, st
 
 }
 
-bool read_data( //cv::Mat &image, std::string image_file_name, 
-                pcl::PointCloud<pcl::PointXYZ>::Ptr result_point_cloud, std::string point_cloud_file_name,
-                std::vector<BOX2D> &box2d_scene, std::string file_name_2d, std::vector<BOX3D> &box3d_scene, std::string file_name_3d,
-                Eigen::Matrix4f &external_para, std::string external_para_file_name, Eigen::Matrix3f &internal_para, std::string internal_para_file_name                
-                ){
+bool parseJsonFile(const std::string& file_name, const std::function<void(const Json::Value&)> read){
+    std::ifstream ifs;
+    ifs.open(file_name); 
+    if(!ifs.is_open()) {
+        std::cout << "fail to open : " << file_name << std::endl;
+        assert(ifs.is_open());
+    }
     
-    bool result = true;
-
-    result = result && read_point_cloud(result_point_cloud, point_cloud_file_name);
-
-    // image = cv::imread(image_file_name);
-
-    // 优雅的读取json数据并赋值给box2d和box3d 要重载from_json 并引入 nlohmann json 解析库 #unnecessary
-    // 更优雅的读入实现方式：构造具体数据这一块传递回调函数，把json的读取层做一个抽象提取 #todo #unnecessary
-
+    Json::Value json_tree;
     Json::Reader reader;
-
-    std::ifstream ifs_2d;
-    ifs_2d.open(file_name_2d); 
-    assert(ifs_2d.is_open());
-    Json::Value json_tree_2d;
-    if (!reader.parse(ifs_2d, json_tree_2d, false))
+    if (!reader.parse(ifs, json_tree, false))
     {
-        cerr << "parse 2dboxing failed \n";
+        cerr << "parse " + file_name + "failed \n";
         return false;
     }    
-    for (unsigned int i = 0; i < json_tree_2d.size(); i++) {
-        box2d_scene.push_back(BOX2D(json_tree_2d[i]["2d_box"]["xmin"].asDouble(), json_tree_2d[i]["2d_box"]["ymin"].asDouble(), 
-                                    json_tree_2d[i]["2d_box"]["xmax"].asDouble(), json_tree_2d[i]["2d_box"]["ymax"].asDouble()));
-       
-    }
-    ifs_2d.close();
 
-    std::ifstream ifs_3d;
-    ifs_3d.open(file_name_3d); 
-    assert(ifs_3d.is_open());
-    Json::Value json_tree_3d;
-    if (!reader.parse(ifs_3d, json_tree_3d, false))
-    {
-        cerr << "parse 3dboxing failed \n";
-        return false;
-    }
-    for (unsigned int i = 0; i < json_tree_3d.size(); i++) {
-        box3d_scene.push_back(BOX3D(json_tree_3d[i]["rotation"].asDouble(), json_tree_3d[i]["3d_dimensions"]["h"].asDouble(), json_tree_3d[i]["3d_dimensions"]["w"].asDouble(), json_tree_3d[i]["3d_dimensions"]["l"].asDouble(), 
-                                    json_tree_3d[i]["3d_location"]["x"].asDouble(), json_tree_3d[i]["3d_location"]["y"].asDouble(), json_tree_3d[i]["3d_location"]["z"].asDouble()));
-
-    }
-    ifs_3d.close();
-
-    std::ifstream ifs_inter;
-    ifs_inter.open(internal_para_file_name); 
-    assert(ifs_inter.is_open());
-    Json::Value json_tree_inter;
-    if (!reader.parse(ifs_inter, json_tree_inter, false))
-    {
-        cerr << "parse internal failed \n";
-        return false;
-    }
-    // input internal_para from json_tree_inter
-    for(unsigned int i = 0; i < json_tree_inter["cam_K"].size(); i++){
-        internal_para(i / 3, i % 3) = json_tree_inter["cam_K"][i].asDouble();
-    }
-    ifs_inter.close();
-
-    std::ifstream ifs_external;
-    ifs_external.open(external_para_file_name); 
-    assert(ifs_external.is_open());
-    Json::Value json_tree_external;
-    if (!reader.parse(ifs_external, json_tree_external, false))
-    {
-        cerr << "parse external failed \n";
-        return false;
-    }
-    // external_para
-    for(unsigned int i = 0; i < 3; i++){
-        for(unsigned int j = 0; j < 3; j++){
-            external_para(i, j) = json_tree_external["rotation"][i][j].asDouble();
-        }
-        external_para(i, 3) = json_tree_external["translation"][i][0].asDouble();
-    }
-    external_para(3, 3) = 1;
-    ifs_external.close();
-
-    return result;
+    read(json_tree);
+    ifs.close();
+    return true;
 }
+
+void show_3dbox_detailed_type(std::vector<BOX3D> box3d_scene, std::string shown_name){
+    std::map<std::string, int> type_count;
+    for(auto box3d: box3d_scene){
+        type_count[box3d.type]++;
+    }
+    std::cout << shown_name << ":" << box3d_scene.size() << std::endl;
+    for(auto pair: type_count){
+        std::cout << "\t" << pair.first << " " << pair.second << std::endl;
+    }
+
+}
+
 
 void show_boxed_target_with_color(pcl::PointCloud<pcl::PointXYZ>::Ptr scene_point_cloud, std::vector<BOX3D> box3d_scene){
 
@@ -347,38 +306,122 @@ void calculate_3dboxed_point_cloud_retain2d_rate(pcl::PointCloud<pcl::PointXYZ>:
 
 int main(){
     // cv::Mat image;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr scene_point_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    std::vector<BOX2D> box2d_scene;
-    std::vector<BOX3D> box3d_scene;
-
-    Eigen::Matrix4f external_para = Eigen::Matrix4f::Zero();
-    Eigen::Matrix3f internal_para = Eigen::Matrix3f::Zero();
-
-    read_data(//image , "../cooperative-vehicle-infrastructure-example_12649705822621696/cooperative-vehicle-infrastructure-example/infrastructure-side/image/000010.jpg",
-        scene_point_cloud, "../cooperative-vehicle-infrastructure-example_12649705822621696/cooperative-vehicle-infrastructure-example/infrastructure-side/velodyne/000010.pcd", 
-        box2d_scene, "../cooperative-vehicle-infrastructure-example_12649705822621696/cooperative-vehicle-infrastructure-example/infrastructure-side/label/camera/000010.json", 
-        box3d_scene, "../cooperative-vehicle-infrastructure-example_12649705822621696/cooperative-vehicle-infrastructure-example/infrastructure-side/label/virtuallidar/000010.json",
-        external_para, "../cooperative-vehicle-infrastructure-example_12649705822621696/cooperative-vehicle-infrastructure-example/infrastructure-side/calib/virtuallidar_to_camera/000010.json",
-        internal_para, "../cooperative-vehicle-infrastructure-example_12649705822621696/cooperative-vehicle-infrastructure-example/infrastructure-side/calib/camera_intrinsic/000010.json"        
-        );
     
-    std::cout << "scene_point_cloud size: " << scene_point_cloud->size() << std::endl;
-    std::cout << "box2d_scene size: " << box2d_scene.size() << std::endl;
-    std::cout << "box3d_scene size: " << box3d_scene.size() << std::endl;
-    //cout internal_para
-    std::cout << "internal_para: " << internal_para << std::endl;
-    //cout external_para
-    std::cout << "external_para: " << external_para << std::endl;
+    // read 模块有待用接口抽象几层 #todo
+    
+    std::string prefix_folder = "../cooperative-vehicle-infrastructure-example_12649705822621696/cooperative-vehicle-infrastructure-example",
+                infra_point_cloud_filename = "/infrastructure-side/velodyne/000049.pcd", 
+                vehicle_point_cloud_filename = "/vehicle-side/velodyne/015404.pcd",
+                cooperative_3dbox_filename = "/cooperative/label_world/015404.json",
+                infra_3dbox_filename = "/infrastructure-side/label/virtuallidar/000049.json",
+                vehicle_3dbox_filename = "/vehicle-side/label/lidar/015404.json",
+                vehicle_lidar2novatel_filename = "/vehicle-side/calib/lidar_to_novatel/015404.json",
+                vehicle_novatel2world_filename = "/vehicle-side/calib/novatel_to_world/015404.json",
+                infra_lidar2world_filename = "/infrastructure-side/calib/virtuallidar_to_world/000049.json";
+
+    infra_point_cloud_filename = prefix_folder + infra_point_cloud_filename;
+    vehicle_point_cloud_filename = prefix_folder + vehicle_point_cloud_filename;
+    cooperative_3dbox_filename = prefix_folder + cooperative_3dbox_filename;
+    infra_3dbox_filename = prefix_folder + infra_3dbox_filename;
+    vehicle_3dbox_filename = prefix_folder + vehicle_3dbox_filename;
+    vehicle_lidar2novatel_filename = prefix_folder + vehicle_lidar2novatel_filename;
+    vehicle_novatel2world_filename = prefix_folder + vehicle_novatel2world_filename;
+    infra_lidar2world_filename = prefix_folder + infra_lidar2world_filename;
+    
+
+    read_point_cloud(infra_point_cloud, infra_point_cloud_filename);
+    read_point_cloud(vehicle_point_cloud, vehicle_point_cloud_filename);
+
+    //3dbox
+    parseJsonFile(cooperative_3dbox_filename, [&](const Json::Value json_tree_3dbox){
+        for (unsigned int i = 0; i < json_tree_3dbox.size(); i++) {
+            std::string type = json_tree_3dbox[i]["type"].asString();
+            std::transform(type.begin(), type.end(), type.begin(), ::tolower);
+            cooperative_3dbox_scene.push_back(BOX3D(type, 0.0, json_tree_3dbox[i]["3d_dimensions"]["h"].asDouble(), json_tree_3dbox[i]["3d_dimensions"]["w"].asDouble(), json_tree_3dbox[i]["3d_dimensions"]["l"].asDouble(), 
+                                        json_tree_3dbox[i]["3d_location"]["x"].asDouble(), json_tree_3dbox[i]["3d_location"]["y"].asDouble(), json_tree_3dbox[i]["3d_location"]["z"].asDouble()));
+        }
+    });
+    
+    parseJsonFile(infra_3dbox_filename, [&](const Json::Value json_tree_3dbox){
+        for (unsigned int i = 0; i < json_tree_3dbox.size(); i++) {
+            std::string type = json_tree_3dbox[i]["type"].asString();
+            std::transform(type.begin(), type.end(), type.begin(), ::tolower);
+            infra_3dbox_scene.push_back(BOX3D(type, json_tree_3dbox[i]["rotation"].asDouble(), json_tree_3dbox[i]["3d_dimensions"]["h"].asDouble(), json_tree_3dbox[i]["3d_dimensions"]["w"].asDouble(), json_tree_3dbox[i]["3d_dimensions"]["l"].asDouble(), 
+                                        json_tree_3dbox[i]["3d_location"]["x"].asDouble(), json_tree_3dbox[i]["3d_location"]["y"].asDouble(), json_tree_3dbox[i]["3d_location"]["z"].asDouble()));
+        }
+    });
+
+    parseJsonFile(vehicle_3dbox_filename, [&](const Json::Value json_tree_3dbox){
+        for (unsigned int i = 0; i < json_tree_3dbox.size(); i++) {
+            std::string type = json_tree_3dbox[i]["type"].asString();
+            std::transform(type.begin(), type.end(), type.begin(), ::tolower);
+            vehicle_3dbox_scene.push_back(BOX3D(type, json_tree_3dbox[i]["rotation"].asDouble(), json_tree_3dbox[i]["3d_dimensions"]["h"].asDouble(), json_tree_3dbox[i]["3d_dimensions"]["w"].asDouble(), json_tree_3dbox[i]["3d_dimensions"]["l"].asDouble(), 
+                                        json_tree_3dbox[i]["3d_location"]["x"].asDouble(), json_tree_3dbox[i]["3d_location"]["y"].asDouble(), json_tree_3dbox[i]["3d_location"]["z"].asDouble()));
+        }
+    });
+
+    // external
+    parseJsonFile(vehicle_lidar2novatel_filename, [&](const Json::Value json_tree_external){
+        for(unsigned int i = 0; i < 3; i++){
+            for(unsigned int j = 0; j < 3; j++){
+                T_vehicle_lidar2novatel(i, j) = json_tree_external["transform"]["rotation"][i][j].asDouble();
+            }
+            T_vehicle_lidar2novatel(i, 3) = json_tree_external["transform"]["translation"][i][0].asDouble();
+        }
+        T_vehicle_lidar2novatel(3, 3) = 1;
+    });
+
+    parseJsonFile(vehicle_novatel2world_filename, [&](const Json::Value json_tree_external){
+        for(unsigned int i = 0; i < 3; i++){
+            for(unsigned int j = 0; j < 3; j++){
+                T_vehicle_novatel2world(i, j) = json_tree_external["rotation"][i][j].asDouble();
+            }
+            T_vehicle_novatel2world(i, 3) = json_tree_external["translation"][i][0].asDouble();
+        }
+        T_vehicle_novatel2world(3, 3) = 1;
+    });
+
+    parseJsonFile(infra_lidar2world_filename, [&](const Json::Value json_tree_external){
+        for(unsigned int i = 0; i < 3; i++){
+            for(unsigned int j = 0; j < 3; j++){
+                T_infra_lidar2world(i, j) = json_tree_external["rotation"][i][j].asDouble();
+            }
+            T_infra_lidar2world(i, 3) = json_tree_external["translation"][i][0].asDouble();
+        }
+        T_infra_lidar2world(3, 3) = 1;
+    });
+
+    // internal
+    // result = result && parseJsonFile(internal_para_file_name, [&internal_para](const Json::Value json_tree_inter){
+    //     for(unsigned int i = 0; i < json_tree_inter["cam_K"].size(); i++){
+    //         internal_para(i / 3, i % 3) = json_tree_inter["cam_K"][i].asDouble();
+    //     }
+    // });
+
+    std::cout << "infra_point_cloud size: " << infra_point_cloud->size() << std::endl;
+    std::cout << "vehicle_point_cloud size: " << vehicle_point_cloud->size() << std::endl;    
+    // std::cout << "cooperative_3dbox_scene size: " << cooperative_3dbox_scene.size() << std::endl;
+    // std::cout << "infra_3dbox_scene size: " << infra_3dbox_scene.size() << std::endl;
+    // std::cout << "vehicle_3dbox_scene size: " << vehicle_3dbox_scene.size() << std::endl;
+    std::cout << "T_vehicle_lidar2novatel:\n" << T_vehicle_lidar2novatel << std::endl;
+    std::cout << "T_vehicle_novatel2world:\n" << T_vehicle_novatel2world << std::endl;
+    std::cout << "T_infra_lidar2world:\n" << T_infra_lidar2world << std::endl;
+
+
+    show_3dbox_detailed_type(cooperative_3dbox_scene, "cooperative");
+    show_3dbox_detailed_type(infra_3dbox_scene, "infrastructure");
+    show_3dbox_detailed_type(vehicle_3dbox_scene, "vehicle");
+    
 
     // for (int i = 0; i < box2d_scene.size(); i++) {
     //     std::string name_2d = "box2d_" + std::to_string(i);
     //     viewer.addCube(box2d_scene[i].xmin, box2d_scene[i].xmax, box2d_scene[i].ymin, box2d_scene[i].ymax, 0, 0, 1, 0, 0, name_2d);
     // }
 
-    show_boxed_target_with_color(scene_point_cloud, box3d_scene);
+    // show_boxed_target_with_color(infra_point_cloud, cooperative_3dbox_scene);
     // 框框和点云目标并不完全重合，看起来这个json的检测框不是针对这个点云的？#todo  
 
-    // calculate_3dboxed_point_cloud_retain2d_rate(scene_point_cloud, box3d_scene, box2d_scene, external_para, internal_para);
+    // calculate_3dboxed_point_cloud_retain2d_rate(infra_point_cloud, box3d_scene, box2d_scene, external_para, internal_para);
 
     // pcl::PointCloud<pcl::PointXYZI>::Ptr scene_point_cloud_i(new pcl::PointCloud<pcl::PointXYZI>);
     // pcl::copyPointCloud(*scene_point_cloud, *scene_point_cloud_i);
@@ -387,6 +430,8 @@ int main(){
     // }// intensity 的范围 #todo
     // cv::Mat output_image;
     // project2image(scene_point_cloud_i, image, output_image, external_para, internal_para);
+
+
 
     /** visualize 
     
@@ -409,7 +454,7 @@ int main(){
 
     **/
     
-
+   cout << "done!!!!!!!!!!!!!"<<endl;
 
     return  0;
 }
