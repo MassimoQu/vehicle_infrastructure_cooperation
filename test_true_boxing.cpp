@@ -5,6 +5,8 @@
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/visualization/cloud_viewer.h>
 #include <pcl/filters/crop_box.h>
+#include <pcl/ModelCoefficients.h>
+#include <pcl/filters/project_inliers.h>
 
 // #include <opencv2/opencv.hpp>
 
@@ -108,7 +110,12 @@ void show_3dbox_detailed_type(std::vector<BOX3D> box3d_scene, std::string shown_
 }
 
 
-void show_boxed_target_with_color(pcl::PointCloud<pcl::PointXYZ>::Ptr scene_point_cloud, std::vector<BOX3D> box3d_scene){
+// void show_boxed_target_with_color(pcl::PointCloud<pcl::PointXYZ>::Ptr scene_point_cloud, std::vector<BOX3D> box3d_scene){
+
+//     show_boxed_target_with_color(scene_point_cloud, box3d_scene, Eigen::Vector4f())
+// }
+
+void show_boxed_target_with_color(pcl::PointCloud<pcl::PointXYZ>::Ptr scene_point_cloud, std::vector<BOX3D> box3d_scene, Eigen::Matrix4f T, std::string point_cloud_scene_name){
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr scene_point_cloud_rgb (new pcl::PointCloud<pcl::PointXYZRGB>());
     pcl::copyPointCloud(*scene_point_cloud, *scene_point_cloud_rgb);
@@ -123,61 +130,49 @@ void show_boxed_target_with_color(pcl::PointCloud<pcl::PointXYZ>::Ptr scene_poin
 
     int total_point_num = scene_point_cloud_rgb->size();
 
-    pcl::visualization::PCLVisualizer viewer("scene_point_cloud_rgb");
+    pcl::visualization::PCLVisualizer viewer(point_cloud_scene_name);
     viewer.setBackgroundColor(0.0, 0.0, 0.0);
     viewer.addCoordinateSystem(1.0);
 
     for (int i = 0; i < box3d_scene.size(); i++) { 
 
-        int xmin = box3d_scene[i].location.x - box3d_scene[i].dimensions.l / 2, ymin = box3d_scene[i].location.y - box3d_scene[i].dimensions.w / 2, zmin = box3d_scene[i].location.z - box3d_scene[i].dimensions.h / 2, 
-            xmax = box3d_scene[i].location.x + box3d_scene[i].dimensions.l / 2, ymax = box3d_scene[i].location.y + box3d_scene[i].dimensions.w / 2, zmax = box3d_scene[i].location.z + box3d_scene[i].dimensions.h / 2;
-
         pcl::CropBox<pcl::PointXYZRGB> crop_box_filter;
         crop_box_filter.setInputCloud(scene_point_cloud_rgb);
-        // crop_box_filter.setMin(Eigen::Vector4f(xmin, ymin, zmin, 1.0));
-        // crop_box_filter.setMax(Eigen::Vector4f(xmax, ymax, zmax, 1.0));
         crop_box_filter.setMin(Eigen::Vector4f(-box3d_scene[i].dimensions.l / 2, -box3d_scene[i].dimensions.w / 2, -box3d_scene[i].dimensions.h / 2, 1.0));
         crop_box_filter.setMax(Eigen::Vector4f(box3d_scene[i].dimensions.l / 2, box3d_scene[i].dimensions.w / 2, box3d_scene[i].dimensions.h / 2, 1.0));
         crop_box_filter.setNegative(false);//默认false，保留box内的点
 
-        // Eigen::AngleAxisd rotationVector(box3d_scene[i].yaw, Eigen::Vector3d(0, 0, 1));
-        // Eigen::Matrix3d rotationMatrix(rotationVector.toRotationMatrix());
-        // crop_box_filter.setRotation(rotationMatrix)  ;
-
-
-        // double angle = box3d_scene[i].yaw;
-        // Eigen::Matrix4f transform_matrix;
-        // transform_matrix.setZero();
-        // transform_matrix(0, 0) = cos(angle);
-        // transform_matrix(0, 1) = -sin(angle);
-        // transform_matrix(1, 0) = sin(angle);
-        // transform_matrix(1, 1) = cos(angle);
-        // transform_matrix(2, 2) = 1;
-        // transform_matrix(3, 3) = 1;
-        // std::cout << "rotation_matrix*****\n" << transform_matrix << endl << endl;
-        // crop_box_filter.setTransform(Eigen::Affine3f(transform_matrix));
-
-
-        // rotate crop_box using crop_box_filter.setRotation
         crop_box_filter.setTranslation(Eigen::Vector3f(box3d_scene[i].location.x, box3d_scene[i].location.y, box3d_scene[i].location.z));
         crop_box_filter.setRotation(Eigen::Vector3f(0.0f, 0.0f, (float) (box3d_scene[i].yaw * M_PI / 180)));  
-        // verify the effectiveness of the rotation #todo
-        // above shows the idea of rotation of the box , another idea is to rotate the point cloud #todo
+        // crop_box_filter.setTransform(Eigen::Affine3f(T));
         
         crop_box_filter.filter(inliers->indices);
         for(int i = 0; i < inliers->indices.size(); i++){
-            // scene_point_cloud_rgb->points[inliers->indices[i]].r = 255;
-            // scene_point_cloud_rgb->points[inliers->indices[i]].g = 0;
-            // scene_point_cloud_rgb->points[inliers->indices[i]].b = 0;
-
             auto& point = scene_point_cloud_rgb->at(inliers->indices.at(i));
             point.r = 255;
             point.g = 0;
             point.b = 0;
         }
 
+        
+
+        Eigen::Vector4f cubeMax = crop_box_filter.getMax(), cubeMin = crop_box_filter.getMin();
+        int x_length = cubeMax[0] - cubeMin[0], y_length = cubeMax[1] - cubeMin[1], z_length = cubeMax[2] - cubeMin[2];
+        Eigen::Vector3f cube_translation = crop_box_filter.getTranslation(), cube_rotation = crop_box_filter.getRotation();
+        // const Eigen::Quaternionf rotation_quanter(Eigen::Affine3f(cube_rotation));
+        // Eigen::Quaternionf rotation_quanter;
+        // rotation_quanter = cube_rotation;
+
         // boxed target
-        // viewer.addCube(xmin, xmax, ymin, ymax, zmin, zmax, 1, 0, 0, "box3d_" + std::to_string(i));
+        // viewer.addCube(cubeMin[0], cubeMax[0], cubeMin[1], cubeMax[1], cubeMin[2], cubeMax[2], 1, 0, 0, "box3d_" + std::to_string(i));
+        // viewer.addCube(cube_translation, rotation_quanter, x_length, y_length, z_length, "box3d_" + std::to_string(i), 0);
+
+
+
+        // viewer.addCube()
+
+        
+
 
         total_point_num = total_point_num - inliers->indices.size();
 
@@ -204,8 +199,8 @@ void show_boxed_target_with_color(pcl::PointCloud<pcl::PointXYZ>::Ptr scene_poin
 
     }
 
-    viewer.addPointCloud<pcl::PointXYZRGB> (scene_point_cloud_rgb, "scene_point_cloud_rgb");
-    viewer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "scene_point_cloud_rgb");
+    viewer.addPointCloud<pcl::PointXYZRGB> (scene_point_cloud_rgb, point_cloud_scene_name);
+    viewer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, point_cloud_scene_name);
    
     viewer.addCoordinateSystem (1.0);
     viewer.initCameraParameters(); // 啥作用？
@@ -218,11 +213,6 @@ void show_boxed_target_with_color(pcl::PointCloud<pcl::PointXYZ>::Ptr scene_poin
     }
 
     return;
-}
-
-void calculate_3dboxed_point_cloud_retain2d_rate(pcl::PointCloud<pcl::PointXYZ>::Ptr scene_point_cloud, std::vector<BOX3D> box3d_scene, std::vector<BOX2D> box2d_scene, Eigen::Matrix4f external_para, Eigen::Matrix3f internal_para){
-
-
 }
 
 // void project2image(pcl::PointCloud<pcl::PointXYZI>::Ptr pc, cv::Mat raw_image, cv::Mat &output_image, Eigen::Matrix4f RT, Eigen::Matrix3f camera_param)
@@ -303,6 +293,114 @@ void calculate_3dboxed_point_cloud_retain2d_rate(pcl::PointCloud<pcl::PointXYZ>:
 //         // cv::circle(output_image, cv::Point2f(x, y), point_r, cv::Scalar(blue,green,red), -1);
 //     }
 // }
+
+//多窗口点云显示函数
+boost::shared_ptr<pcl::visualization::PCLVisualizer> Show2ViewerWindow(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud01, std::string cloud1_name,
+                                                                        pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud02, std::string cloud2_name)
+{
+	boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
+	viewer->initCameraParameters();
+	//创建视窗的标准代码
+ 
+	//第一个窗口显示内容进行设定
+	int v1(0);
+	viewer->createViewPort(0.0, 0.0, 0.5, 1.0, v1);
+	viewer->setBackgroundColor(0, 0, 0, v1);
+	viewer->addText(cloud1_name, 10, 10, "v1 text", v1);
+	pcl::visualization::PointCloudColorHandlerCustom < pcl::PointXYZ>	rgb(cloud01, 255, 0, 0);
+	//pcl::visualization::PointCloudColorHandlerRGBField < pcl::PointXYZRGB>	rgb(pointCloudPtr);
+	viewer->addPointCloud<pcl::PointXYZ>(cloud01, rgb, "sample cloud1", v1);
+ 
+	//第二个显示内容进行设定
+	int v2(1);
+	viewer->createViewPort(0.5, 0.0, 1.0, 1.0, v2);
+	viewer->setBackgroundColor(0.3, 0.3, 0.3, v2);
+	viewer->addText(cloud2_name, 10, 10, "v2 text", v2);
+	pcl::visualization::PointCloudColorHandlerCustom < pcl::PointXYZ>	single_color(cloud02, 0, 255, 0);
+	viewer->addPointCloud<pcl::PointXYZ>(cloud02, single_color, "sample cloud2", v2);
+ 
+	viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud1");
+	viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud2");
+	viewer->addCoordinateSystem(1.0);
+	return viewer;
+}
+
+void show_2dlidarimage_project2ground(pcl::PointCloud<pcl::PointXYZ>::Ptr scene_point_cloud, std::vector<BOX3D> box3d_scene, std::string point_cloud_scene_name){
+    
+    pcl::PointCloud<pcl::PointXYZ>::Ptr boxed_target_point_cloud_set(new pcl::PointCloud<pcl::PointXYZ>());
+
+    // pcl::visualization::PCLVisualizer viewer(point_cloud_scene_name);
+    // viewer.setBackgroundColor(0.0, 0.0, 0.0);
+    // viewer.addCoordinateSystem(1.0);
+    
+    int cnt = 0;
+
+    for (int i = 0; i < box3d_scene.size(); i++) { 
+
+        pcl::CropBox<pcl::PointXYZ> crop_box_filter;
+        crop_box_filter.setInputCloud(scene_point_cloud);
+        crop_box_filter.setMin(Eigen::Vector4f(-box3d_scene[i].dimensions.l / 2, -box3d_scene[i].dimensions.w / 2, -box3d_scene[i].dimensions.h / 2, 1.0));
+        crop_box_filter.setMax(Eigen::Vector4f(box3d_scene[i].dimensions.l / 2, box3d_scene[i].dimensions.w / 2, box3d_scene[i].dimensions.h / 2, 1.0));
+        crop_box_filter.setNegative(false);//默认false，保留box内的点
+
+        crop_box_filter.setTranslation(Eigen::Vector3f(box3d_scene[i].location.x, box3d_scene[i].location.y, box3d_scene[i].location.z));
+        crop_box_filter.setRotation(Eigen::Vector3f(0.0f, 0.0f, (float) (box3d_scene[i].yaw * M_PI / 180)));  
+        // crop_box_filter.setTransform(Eigen::Affine3f(T));
+        
+        pcl::PointCloud<pcl::PointXYZ>::Ptr boxed_target_point_cloud(new pcl::PointCloud<pcl::PointXYZ>());
+        crop_box_filter.filter(*boxed_target_point_cloud);
+        // std::cout << "boxed_target_point_cloud.size()" << boxed_target_point_cloud->size() << std::endl;
+        *boxed_target_point_cloud_set += *boxed_target_point_cloud;
+        // std::cout << "boxed_target_point_cloud_set.size()" << boxed_target_point_cloud_set->size() << std::endl;
+    }
+
+	pcl::PointCloud<pcl::PointXYZ>::Ptr boxed_target_point_cloud_set_projected(new pcl::PointCloud<pcl::PointXYZ>);
+ 
+ 
+	//创建一个系数为X = Y = 0; Z = 1的平面
+	pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients());
+	coefficients->values.resize(4);
+	coefficients->values[0] = coefficients->values[1] = 0;
+	coefficients->values[2] = 1.0;
+	coefficients->values[3] = 0;
+	//创建滤波器对象
+ 
+	pcl::ProjectInliers<pcl::PointXYZ> proj;
+	proj.setModelType(pcl::SACMODEL_PLANE);
+	proj.setInputCloud(boxed_target_point_cloud_set);
+	proj.setModelCoefficients(coefficients);
+	proj.filter(*boxed_target_point_cloud_set_projected);
+ 
+ 
+	boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer;
+	viewer = Show2ViewerWindow(boxed_target_point_cloud_set, "infrastructure point cloud", boxed_target_point_cloud_set_projected, "infrastructure point cloud bev ");
+ 
+	while (!viewer->wasStopped())
+	{
+		viewer->spinOnce(100);
+		// boost::this_thread::sleep(boost::posix_time::microseconds(100000));
+	}
+
+
+
+
+    // // viewer.addPointCloud<pcl::PointXYZ> (boxed_target_point_cloud_set, point_cloud_scene_name);
+    // viewer.addPointCloud (boxed_target_point_cloud_set, point_cloud_scene_name);
+    // viewer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, point_cloud_scene_name);
+   
+    // viewer.addCoordinateSystem (1.0);
+    // viewer.setCameraPosition(0, 0, 0, )
+    // // viewer.initCameraParameters(); // 啥作用？
+
+    // while (!viewer.wasStopped())
+    // {
+    //     // viewer.spinOnce();
+    //     viewer.spinOnce(100);
+    //     // std::this_thread::sleep_for(100ms);
+    // }
+
+    // return;
+}
 
 int main(){
     // cv::Mat image;
@@ -418,10 +516,10 @@ int main(){
     //     viewer.addCube(box2d_scene[i].xmin, box2d_scene[i].xmax, box2d_scene[i].ymin, box2d_scene[i].ymax, 0, 0, 1, 0, 0, name_2d);
     // }
 
-    // show_boxed_target_with_color(infra_point_cloud, cooperative_3dbox_scene);
-    // 框框和点云目标并不完全重合，看起来这个json的检测框不是针对这个点云的？#todo  
+    // show_boxed_target_with_color(infra_point_cloud, infra_3dbox_scene, T_infra_lidar2world.transpose() * T_vehicle_novatel2world * T_vehicle_lidar2novatel, "infrastructure point cloud");  
+    // show_boxed_target_with_color(vehicle_point_cloud, vehicle_3dbox_scene, T_infra_lidar2world.transpose() * T_vehicle_novatel2world * T_vehicle_lidar2novatel, "vehicle point cloud");  
 
-    // calculate_3dboxed_point_cloud_retain2d_rate(infra_point_cloud, box3d_scene, box2d_scene, external_para, internal_para);
+    std::cout << "true external matrix:\n" << T_infra_lidar2world.inverse() * T_vehicle_novatel2world * T_vehicle_lidar2novatel << std::endl;
 
     // pcl::PointCloud<pcl::PointXYZI>::Ptr scene_point_cloud_i(new pcl::PointCloud<pcl::PointXYZI>);
     // pcl::copyPointCloud(*scene_point_cloud, *scene_point_cloud_i);
@@ -431,7 +529,8 @@ int main(){
     // cv::Mat output_image;
     // project2image(scene_point_cloud_i, image, output_image, external_para, internal_para);
 
-
+    // show_2dlidarimage_project2ground(infra_point_cloud, infra_3dbox_scene, "infrastructure boxed point cloud");
+    // show_2dlidarimage_project2ground(vehicle_point_cloud, vehicle_3dbox_scene, "vehicle boxed point cloud");
 
     /** visualize 
     

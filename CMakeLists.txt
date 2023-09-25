@@ -10,7 +10,7 @@ add_definitions(${PCL_DEFINITIONS})
 message(STATUS "PCL_INCLUDE_DIRS: ${PCL_INCLUDE_DIRS}")
 message(STATUS "PCL_LIBRARY_DIRS: ${PCL_LIBRARY_DIRS}")
 
-# find_package(OpenCV REQUIRED)
+# find_package(OpenCV 3.4 REQUIRED)
 # include_directories(${OpenCV_INCLUDE_DIRS})
 # link_directories(${OpenCV_LIBS})
 # message(STATUS "OpenCV_INCLUDE_DIRS: ${OpenCV_INCLUDE_DIRS}")
